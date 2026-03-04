@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QR Tracker - Scan Test</title>
+
+  <!-- Local Bootstrap (no CDN) -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap/css/bootstrap.min.css') }}">
+
+  <style>
+    #readerWrap { width: 100%; max-width: 560px; }
+    #video {
+      width: 100%;
+      border-radius: 10px;
+      background: #000;
+      display: none; /* shown only when BarcodeDetector is used */
+    }
+    #reader { width: 100%; display: none; } /* shown only for html5-qrcode fallback */
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                   "Liberation Mono", "Courier New", monospace;
+    }
+  </style>
+</head>
+
+<body class="bg-light">
+  <div class="container py-3">
+    <h4 class="mb-3">Verification by Marking Code</h4>
+
+    <div class="card mb-3">
+      <div class="card-body">
+
+        <!-- Scan controls -->
+        <div class="d-flex gap-2 flex-wrap">
+          <button id="btnStart" class="btn btn-primary">Scan Package Code</button>
+          <button id="btnStop" class="btn btn-outline-secondary" disabled>Stop</button>
+        </div>
+
+        <!-- Manual input -->
+        <div class="mt-3">
+          <label class="form-label">Manual input</label>
+          <div class="input-group">
+            <input id="manualInput" type="text" class="form-control mono" placeholder="Enter / paste code here">
+            <button id="btnUseManual" class="btn btn-outline-primary">Use</button>
+          </div>
+          <div class="form-text">Use manual entry if the camera cannot read the code.</div>
+        </div>
+
+        <!-- Image upload scan -->
+        <div class="mt-3">
+          <label class="form-label">Upload image (if live scan fails)</label>
+          <div class="input-group">
+            <input id="fileInput" type="file" class="form-control" accept="image/*">
+            <button id="btnScanFile" class="btn btn-outline-primary">Scan Image</button>
+          </div>
+          <div class="form-text">Tip: screenshots/clear photos work best.</div>
+        </div>
+
+        <hr class="my-3">
+
+        <!-- Code display + copy -->
+        <label class="form-label">Marking code (always visible)</label>
+        <div class="input-group">
+          <input id="codeDisplay" type="text" class="form-control mono" readonly>
+          <button id="btnCopy" class="btn btn-outline-success" disabled>Copy</button>
+        </div>
+
+        <!-- Toast / feedback -->
+        <div id="toast" class="alert alert-success mt-3 py-2 d-none" role="alert">
+          Copied
+        </div>
+
+        <!-- Status -->
+        <div id="status" class="text-muted small mt-2"></div>
+      </div>
+    </div>
+
+    <!-- Scanner preview area -->
+    <div class="card">
+      <div class="card-body">
+        <div id="readerWrap">
+          <!-- Native BarcodeDetector path -->
+          <video id="video" playsinline></video>
+
+          <!-- html5-qrcode fallback path -->
+          <div id="reader"></div>
+        </div>
+
+        <div class="text-muted small mt-2">
+          Camera access works on <strong>https</strong> or <strong>http://localhost</strong>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Local JS (no CDN) -->
+  <script src="{{ url_for('static', filename='bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
+
+  <script>
+    // -----------------------------
+    // DOM references
+    // -----------------------------
+    const btnStart = document.getElementById("btnStart");
+    const btnStop = document.getElementById("btnStop");
+
+    const manualInput = document.getElementById("manualInput");
+    const btnUseManual = document.getElementById("btnUseManual");
+
+    const fileInput = document.getElementById("fileInput");
+    const btnScanFile = document.getElementById("btnScanFile");
+
+    const codeDisplay = document.getElementById("codeDisplay");
+    const btnCopy = document.getElementById("btnCopy");
+
+    const toast = document.getElementById("toast");
+    const statusEl = document.getElementById("status");
+
+    const videoEl = document.getElementById("video");
+    const readerEl = document.getElementById("reader");
+
+    // -----------------------------
+    // UI helpers
+    // -----------------------------
+    function setStatus(msg) {
+      statusEl.textContent = msg || "";
+    }
+
+    function showCopiedToast() {
+      toast.classList.remove("d-none");
+      setTimeout(() => toast.classList.add("d-none"), 900);
+    }
+
+    function setCode(code) {
+      const v = (code || "").trim();
+      codeDisplay.value = v;
+      btnCopy.disabled = !v;
+    }
+
+    // -----------------------------
+    // Copy to clipboard
+    // -----------------------------
+    btnCopy.addEventListener("click", async () => {
+      const code = codeDisplay.value.trim();
+      if (!code) return;
+
+      try {
+        await navigator.clipboard.writeText(code);
+        showCopiedToast();
+      } catch (e) {
+        // Fallback
+        codeDisplay.removeAttribute("readonly");
+        codeDisplay.select();
+        document.execCommand("copy");
+        codeDisplay.setAttribute("readonly", "readonly");
+        showCopiedToast();
+      }
+    });
+
+    // -----------------------------
+    // Manual input
+    // -----------------------------
+    btnUseManual.addEventListener("click", () => {
+      const code = manualInput.value.trim();
+      if (!code) return;
+      setCode(code);
+      setStatus("Manual code set.");
+    });
+
+    manualInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") btnUseManual.click();
+    });
+
+    // ============================================================
+    // SCANNING IMPLEMENTATION
+    // Native BarcodeDetector if available; else html5-qrcode fallback
+    // ============================================================
+
+    // ----- State -----
+    let activeMode = null; // "native" | "html5"
+    let isRunning = false;
+
+    // Native mode state
+    let mediaStream = null;
+    let detector = null;
+    let nativeLoopId = null;
+    let lastNativeHitAt = 0;
+
+    // html5-qrcode fallback state
+    let html5Scanner = null;
+
+    // ----- Utilities -----
+    function showNativeUI() {
+      videoEl.style.display = "block";
+      readerEl.style.display = "none";
+      // ensure html5 reader cleared visually
+      readerEl.innerHTML = "";
+    }
+
+    function showHtml5UI() {
+      videoEl.style.display = "none";
+      readerEl.style.display = "block";
+    }
+
+    function hasNativeBarcodeDetector() {
+      return ("BarcodeDetector" in window);
+    }
+
+    async function buildNativeDetector() {
+      // Ask browser which formats it supports (varies by platform)
+      // We *request* a broad set; the browser will accept what it supports.
+      const desiredFormats = [
+        "qr_code",
+        "data_matrix",
+        "aztec",
+        "pdf417",
+        "code_128",
+        "code_39",
+        "code_93",
+        "ean_13",
+        "ean_8",
+        "itf",
+        "upc_a",
+        "upc_e"
+      ];
+
+      // Some browsers support getSupportedFormats()
+      if (window.BarcodeDetector.getSupportedFormats) {
+        const supported = await window.BarcodeDetector.getSupportedFormats();
+        const formats = desiredFormats.filter(f => supported.includes(f));
+        return new BarcodeDetector({ formats: formats.length ? formats : supported });
+      }
+
+      // Fallback if getSupportedFormats not available
+      return new BarcodeDetector({ formats: desiredFormats });
+    }
+
+    // ----- Start Native BarcodeDetector scanning -----
+    async function startNativeScanner() {
+      activeMode = "native";
+      isRunning = true;
+
+      btnStart.disabled = true;
+      btnStop.disabled = false;
+      btnScanFile.disabled = true;
+
+      showNativeUI();
+      setStatus("Starting camera (native BarcodeDetector)...");
+
+      // Prefer back camera where possible
+      const constraints = {
+        video: { facingMode: { ideal: "environment" } },
+        audio: false
+      };
+
+      try {
+        detector = await buildNativeDetector();
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        videoEl.srcObject = mediaStream;
+        await videoEl.play();
+
+        setStatus("Camera running. Point at barcode/QR.");
+
+        // Run a decode loop using requestAnimationFrame
+        const loop = async () => {
+          if (!isRunning || activeMode !== "native") return;
+
+          try {
+            // Throttle a bit to reduce CPU load (esp on iPhone)
+            const now = Date.now();
+            const sinceLast = now - lastNativeHitAt;
+
+            // Attempt detect at ~8-12fps (depending device)
+            // We still use rAF, but skip frames to avoid overheating.
+            if (sinceLast > 80) {
+              const barcodes = await detector.detect(videoEl);
+
+              if (barcodes && barcodes.length) {
+                // Take first result. Some labels contain multiple codes.
+                const value = barcodes[0].rawValue || "";
+
+                if (value) {
+                  setCode(value);
+                  setStatus("Code detected.");
+                  lastNativeHitAt = now;
+
+                  // Stop after first successful scan (verification UX)
+                  await stopScanner();
+                  return;
+                }
+              }
+            }
+          } catch (e) {
+            // Some frames may throw; ignore and continue
+          }
+
+          nativeLoopId = requestAnimationFrame(loop);
+        };
+
+        nativeLoopId = requestAnimationFrame(loop);
+      } catch (err) {
+        // If native fails (permissions/unsupported), fall back to html5-qrcode
+        setStatus("");
+        await stopNativeResources();
+        await startHtml5Scanner();
+      }
+    }
+
+    async function stopNativeResources() {
+      if (nativeLoopId) {
+        cancelAnimationFrame(nativeLoopId);
+        nativeLoopId = null;
+      }
+
+      if (videoEl) {
+        try { videoEl.pause(); } catch (e) {}
+        videoEl.srcObject = null;
+      }
+
+      if (mediaStream) {
+        // Stop all tracks (important!)
+        mediaStream.getTracks().forEach(t => t.stop());
+        mediaStream = null;
+      }
+
+      detector = null;
+      lastNativeHitAt = 0;
+    }
+
+    // ----- Start html5-qrcode fallback scanning -----
+    async function startHtml5Scanner() {
+      activeMode = "html5";
+      isRunning = true;
+
+      btnStart.disabled = true;
+      btnStop.disabled = false;
+      btnScanFile.disabled = true;
+
+      showHtml5UI();
+      setStatus("Starting camera (html5-qrcode fallback)...");
+
+      try {
+        html5Scanner = new Html5Qrcode("reader");
+
+        const config = {
+          fps: 10,
+          qrbox: { width: 340, height: 340 },
+          rememberLastUsedCamera: true
+        };
+
+        await html5Scanner.start(
+          { facingMode: "environment" },
+          config,
+          async (decodedText) => {
+            setCode(decodedText);
+            setStatus("Code detected.");
+            await stopScanner();
+          },
+          (_errMsg) => {
+            // Ignore noisy scan errors
+          }
+        );
+
+        setStatus("Camera running. Point at barcode/QR.");
+      } catch (err) {
+        isRunning = false;
+        btnStart.disabled = false;
+        btnStop.disabled = true;
+        btnScanFile.disabled = false;
+        setStatus("");
+        alert("Camera start failed. Check permissions and ensure you're on https or localhost.");
+      }
+    }
+
+    async function stopHtml5Resources() {
+      if (html5Scanner) {
+        try {
+          await html5Scanner.stop();
+          await html5Scanner.clear();
+        } catch (e) {
+          // ignore
+        }
+        html5Scanner = null;
+      }
+      // Clear html5 reader div for clean restart
+      readerEl.innerHTML = "";
+    }
+
+    // ----- Unified start/stop -----
+    async function startScanner() {
+      if (isRunning) return;
+
+      // Prefer native BarcodeDetector when available
+      if (hasNativeBarcodeDetector()) {
+        await startNativeScanner();
+      } else {
+        await startHtml5Scanner();
+      }
+    }
+
+    async function stopScanner() {
+      if (!isRunning) return;
+
+      // Stop both safely (only one will be active, but this is robust)
+      await stopNativeResources();
+      await stopHtml5Resources();
+
+      activeMode = null;
+      isRunning = false;
+
+      btnStart.disabled = false;
+      btnStop.disabled = true;
+      btnScanFile.disabled = false;
+
+      setStatus("Scanner stopped.");
+    }
+
+    // Hook up start/stop buttons
+    btnStart.addEventListener("click", startScanner);
+    btnStop.addEventListener("click", stopScanner);
+
+    // ============================================================
+    // Upload Image scanning
+    // Try native BarcodeDetector on image first (if available),
+    // else fallback to html5-qrcode scanFile.
+    // ============================================================
+
+    async function scanImageWithNativeDetector(file) {
+      // Create bitmap from file
+      const bitmap = await createImageBitmap(file);
+
+      // Draw into canvas (BarcodeDetector can detect from ImageBitmap directly in many browsers)
+      // But to maximize compatibility, we pass bitmap directly to detect if possible.
+      const localDetector = await buildNativeDetector();
+
+      // Some implementations accept ImageBitmap, some accept CanvasImageSource
+      const results = await localDetector.detect(bitmap);
+
+      // Clean up bitmap
+      try { bitmap.close(); } catch (e) {}
+
+      if (results && results.length && results[0].rawValue) {
+        return results[0].rawValue;
+      }
+
+      return null;
+    }
+
+    async function scanImageWithHtml5(file) {
+      // Use html5-qrcode scanFile which shows image if you pass true
+      const tempScanner = new Html5Qrcode("reader");
+      showHtml5UI();
+
+      try {
+        const decodedText = await tempScanner.scanFile(file, true);
+        return decodedText;
+      } finally {
+        try { await tempScanner.clear(); } catch (e) {}
+      }
+    }
+
+    btnScanFile.addEventListener("click", async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        alert("Please choose an image first.");
+        return;
+      }
+
+      // If live scan is running, stop it first to avoid conflicts
+      if (isRunning) {
+        await stopScanner();
+      }
+
+      btnScanFile.disabled = true;
+      setStatus("Scanning image...");
+
+      try {
+        let decoded = null;
+
+        // Try native first (if available)
+        if (hasNativeBarcodeDetector()) {
+          try {
+            decoded = await scanImageWithNativeDetector(file);
+          } catch (e) {
+            decoded = null; // fallback below
+          }
+        }
+
+        // Fallback to html5-qrcode scanFile
+        if (!decoded) {
+          decoded = await scanImageWithHtml5(file);
+        }
+
+        if (!decoded) {
+          throw new Error("No code detected");
+        }
+
+        setCode(decoded);
+        setStatus("Code detected from image.");
+      } catch (err) {
+        setStatus("");
+        alert("Could not decode from this image. Try a clearer photo or screenshot.");
+      } finally {
+        btnScanFile.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

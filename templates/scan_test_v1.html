@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QR Tracker - Scan Test</title>
+
+  <!-- Local Bootstrap (no CDN) -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+
+  <style>
+    /* Mobile-first UI: keep scanner area visible and large */
+    #reader { width: 100%; max-width: 560px; }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                   "Liberation Mono", "Courier New", monospace;
+    }
+  </style>
+</head>
+
+<body class="bg-light">
+  <div class="container py-3">
+    <h4 class="mb-3">Verification by Marking Code</h4>
+
+    <!-- Controls / Inputs -->
+    <div class="card mb-3">
+      <div class="card-body">
+
+        <!-- Scan controls -->
+        <div class="d-flex gap-2 flex-wrap">
+          <button id="btnStart" class="btn btn-primary">Scan Package Code</button>
+          <button id="btnStop" class="btn btn-outline-secondary" disabled>Stop</button>
+        </div>
+
+        <!-- Manual input -->
+        <div class="mt-3">
+          <label class="form-label">Manual input</label>
+          <div class="input-group">
+            <input id="manualInput" type="text" class="form-control mono" placeholder="Enter / paste code here">
+            <button id="btnUseManual" class="btn btn-outline-primary">Use</button>
+          </div>
+          <div class="form-text">Use manual entry if the camera cannot read the code.</div>
+        </div>
+
+        <!-- Image upload scan -->
+        <div class="mt-3">
+          <label class="form-label">Upload image (if live scan fails)</label>
+          <div class="input-group">
+            <input id="fileInput" type="file" class="form-control" accept="image/*">
+            <button id="btnScanFile" class="btn btn-outline-primary">Scan Image</button>
+          </div>
+          <div class="form-text">Tip: screenshots/clear photos work best.</div>
+        </div>
+
+        <hr class="my-3">
+
+        <!-- Code display + copy -->
+        <label class="form-label">Marking code (always visible)</label>
+        <div class="input-group">
+          <input id="codeDisplay" type="text" class="form-control mono" readonly>
+          <button id="btnCopy" class="btn btn-outline-success" disabled>Copy</button>
+        </div>
+
+        <!-- Toast / feedback -->
+        <div id="toast" class="alert alert-success mt-3 py-2 d-none" role="alert">
+          Copied
+        </div>
+
+        <!-- Optional scan status -->
+        <div id="status" class="text-muted small mt-2"></div>
+      </div>
+    </div>
+
+    <!-- Scanner preview -->
+    <div class="card">
+      <div class="card-body">
+        <div id="reader"></div>
+        <div class="text-muted small mt-2">
+          Camera access works on <strong>https</strong> or <strong>http://localhost</strong>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Local JS (no CDN) -->
+  <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
+
+  <script>
+    // -----------------------------
+    // DOM references
+    // -----------------------------
+    const btnStart = document.getElementById("btnStart");
+    const btnStop = document.getElementById("btnStop");
+
+    const manualInput = document.getElementById("manualInput");
+    const btnUseManual = document.getElementById("btnUseManual");
+
+    const fileInput = document.getElementById("fileInput");
+    const btnScanFile = document.getElementById("btnScanFile");
+
+    const codeDisplay = document.getElementById("codeDisplay");
+    const btnCopy = document.getElementById("btnCopy");
+
+    const toast = document.getElementById("toast");
+    const statusEl = document.getElementById("status");
+
+    // -----------------------------
+    // Scanner state
+    // -----------------------------
+    let scanner = null;
+    let isRunning = false;
+
+    // -----------------------------
+    // UI helpers
+    // -----------------------------
+    function setStatus(msg) {
+      statusEl.textContent = msg || "";
+    }
+
+    function showCopiedToast() {
+      toast.classList.remove("d-none");
+      setTimeout(() => toast.classList.add("d-none"), 900);
+    }
+
+    function setCode(code) {
+      const v = (code || "").trim();
+      codeDisplay.value = v;
+      btnCopy.disabled = !v;
+    }
+
+    function getScannerInstance() {
+      // Create scanner instance once and reuse it
+      if (!scanner) {
+        scanner = new Html5Qrcode("reader");
+      }
+      return scanner;
+    }
+
+    // -----------------------------
+    // Copy to clipboard
+    // -----------------------------
+    btnCopy.addEventListener("click", async () => {
+      const code = codeDisplay.value.trim();
+      if (!code) return;
+
+      try {
+        // Modern clipboard API
+        await navigator.clipboard.writeText(code);
+        showCopiedToast();
+      } catch (e) {
+        // Fallback for older browsers
+        codeDisplay.removeAttribute("readonly");
+        codeDisplay.select();
+        document.execCommand("copy");
+        codeDisplay.setAttribute("readonly", "readonly");
+        showCopiedToast();
+      }
+    });
+
+    // -----------------------------
+    // Manual input
+    // -----------------------------
+    btnUseManual.addEventListener("click", () => {
+      const code = manualInput.value.trim();
+      if (!code) return;
+      setCode(code);
+      setStatus("Manual code set.");
+    });
+
+    // Optional: Enter key triggers manual "Use"
+    manualInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") btnUseManual.click();
+    });
+
+    // -----------------------------
+    // Live scan start/stop
+    // -----------------------------
+    btnStart.addEventListener("click", async () => {
+      if (isRunning) return;
+
+      const html5Qr = getScannerInstance();
+
+      // Bigger box helps 1D barcodes a bit; still depends heavily on camera quality
+      const config = {
+        fps: 10,
+        qrbox: { width: 320, height: 320 },
+        rememberLastUsedCamera: true,
+      };
+
+      try {
+        isRunning = true;
+        btnStart.disabled = true;
+        btnStop.disabled = false;
+        btnScanFile.disabled = true;
+        setStatus("Starting camera...");
+
+        await html5Qr.start(
+          { facingMode: "environment" }, // Prefer back camera on phones
+          config,
+          async (decodedText, decodedResult) => {
+            // Success callback
+            setCode(decodedText);
+            setStatus("Code detected.");
+
+            // Stop after first successful scan (best UX for verification apps)
+            btnStop.click();
+          },
+          (errorMessage) => {
+            // Scan errors are frequent/noisy; keep silent in UI
+            // console.log(errorMessage);
+          }
+        );
+
+        setStatus("Camera is running. Point at barcode/QR.");
+      } catch (err) {
+        // Likely permission denied / no camera / insecure origin
+        isRunning = false;
+        btnStart.disabled = false;
+        btnStop.disabled = true;
+        btnScanFile.disabled = false;
+        setStatus("");
+        alert("Camera start failed. Check permissions and ensure you're on https or localhost.");
+      }
+    });
+
+    btnStop.addEventListener("click", async () => {
+      if (!scanner || !isRunning) return;
+
+      try {
+        setStatus("Stopping camera...");
+        await scanner.stop();
+        await scanner.clear();
+      } catch (e) {
+        // Ignore stop/clear issues; we just want UI to recover
+      } finally {
+        scanner = null;
+        isRunning = false;
+        btnStart.disabled = false;
+        btnStop.disabled = true;
+        btnScanFile.disabled = false;
+        setStatus("Camera stopped.");
+      }
+    });
+
+    // -----------------------------
+    // Scan from uploaded image
+    // -----------------------------
+    btnScanFile.addEventListener("click", async () => {
+      const file = fileInput.files && fileInput.files[0];
+
+      if (!file) {
+        alert("Please choose an image first.");
+        return;
+      }
+
+      // If live scan is running, stop it first to avoid camera conflicts
+      if (isRunning) {
+        await btnStop.click();
+      }
+
+      const html5Qr = getScannerInstance();
+
+      try {
+        setStatus("Scanning image...");
+        // showImage=true renders the uploaded image inside #reader
+        const decodedText = await html5Qr.scanFile(file, true);
+        setCode(decodedText);
+        setStatus("Code detected from image.");
+      } catch (err) {
+        setStatus("");
+        alert("Could not decode from this image. Try a clearer photo or screenshot.");
+      }
+    });
+  </script>
+</body>
+</html>
