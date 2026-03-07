@@ -1,280 +1,368 @@
+/*
+  Main application file.
+
+  This file connects:
+  - buttons
+  - scanner engines
+  - cropper
+  - UI updates
+*/
+
 import { CONFIG } from "./config.js";
-import { $, setStatus, setCode, showCopiedToast, copyToClipboard, setScanUiMode } from "./ui.js";
-import { hasNativeBarcodeDetector, buildNativeDetector, tryEnableTorch } from "./scanner_native.js";
-import { hasZXing, decodeVideoFrameZXing } from "./scanner_zxing.js";
-import { createHtml5Scanner, hasHtml5Qrcode } from "./scanner_html5.js";
+import {
+  getEl,
+  setStatus,
+  setDetectedCode,
+  showCopiedToast,
+  copyText,
+  setViewMode
+} from "./ui.js";
+import {
+  isNativeDetectorAvailable,
+  createNativeDetector,
+  toggleTorch
+} from "./scanner_native.js";
+import {
+  isZXingAvailable,
+  decodeFromVideoFrame
+} from "./scanner_zxing.js";
+import {
+  isHtml5QrcodeAvailable,
+  createHtml5Scanner
+} from "./scanner_html5.js";
 import { Cropper } from "./cropper.js";
-import { decodeFromCroppedCanvas } from "./upload_decode.js";
+import { decodeUploadedCanvas } from "./upload_decode.js";
 
-// Buttons
-const btnStart = $("btnStart");
-const btnStop = $("btnStop");
-const btnTorch = $("btnTorch");
-const btnCopy = $("btnCopy");
-const btnUseManual = $("btnUseManual");
-const btnOpenCrop = $("btnOpenCrop");
+// -------------------------
+// DOM references
+// -------------------------
+const btnStart = getEl("btnStart");
+const btnStop = getEl("btnStop");
+const btnTorch = getEl("btnTorch");
+const btnCopy = getEl("btnCopy");
+const btnUseManual = getEl("btnUseManual");
+const btnOpenCrop = getEl("btnOpenCrop");
+const btnCropDecode = getEl("btnCropDecode");
+const btnCropAuto = getEl("btnCropAuto");
+const btnCropCancel = getEl("btnCropCancel");
 
-const btnCropDecode = $("btnCropDecode");
-const btnCropAuto = $("btnCropAuto");
-const btnCropCancel = $("btnCropCancel");
+const manualInput = getEl("manualInput");
+const fileInput = getEl("fileInput");
+const video = getEl("video");
+const cropCanvas = getEl("cropCanvas");
 
-const manualInput = $("manualInput");
-const fileInput = $("fileInput");
-const videoEl = $("video");
-const cropCanvas = $("cropCanvas");
+// -------------------------
+// App state
+// -------------------------
+let isScanning = false;
+let currentMode = "none";
 
-// State
-let running = false;
-let mode = "none"; // "native" | "zxing" | "html5" | "crop" | "none"
+let mediaStream = null;
+let nativeDetector = null;
+let animationId = null;
+let torchEnabled = false;
 
-let stream = null;
-let detector = null;
-let rafId = null;
-let torchOn = false;
+let html5Scanner = null;
 
-let html5 = null;
-let cropper = new Cropper(cropCanvas);
+const cropper = new Cropper(cropCanvas);
 
-// ------- Copy / Manual -------
+// -------------------------
+// UI actions
+// -------------------------
 btnCopy.addEventListener("click", async () => {
-  const code = $("codeDisplay").value.trim();
-  if (!code) return;
-  await copyToClipboard(code);
+  const value = getEl("codeDisplay").value.trim();
+  if (!value) return;
+
+  await copyText(value);
   showCopiedToast();
 });
 
 btnUseManual.addEventListener("click", () => {
-  const v = manualInput.value.trim();
-  if (!v) return;
-  setCode(v);
+  const value = manualInput.value.trim();
+  if (!value) return;
+
+  setDetectedCode(value);
   setStatus("Manual code set.");
 });
 
-manualInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") btnUseManual.click();
+manualInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    btnUseManual.click();
+  }
 });
 
-// ------- Live scanning (best engine order) -------
-async function startLive() {
-  if (running) return;
+// -------------------------
+// Live scanning
+// -------------------------
+async function startScanning() {
+  if (isScanning) return;
 
-  running = true;
+  isScanning = true;
   btnStart.disabled = true;
   btnStop.disabled = false;
   btnOpenCrop.disabled = true;
 
-  // Prefer native BarcodeDetector if available
-  if (CONFIG.preferNative && hasNativeBarcodeDetector()) {
+  // 1. Try native detector first
+  if (CONFIG.preferNative && isNativeDetectorAvailable()) {
     try {
-      await startNativeLoop();
+      await startNativeScanner();
       return;
-    } catch (_) {
-      await stopLive();
-      // fall through
+    } catch (error) {
+      await stopScanning();
     }
   }
 
-  // Next: ZXing live frame decode (heavier CPU, but helpful on iOS when native missing)
-  if (hasZXing()) {
+  // 2. Then try ZXing live decoding
+  if (isZXingAvailable()) {
     try {
-      await startZXingLoop();
+      await startZXingScanner();
       return;
-    } catch (_) {
-      await stopLive();
+    } catch (error) {
+      await stopScanning();
     }
   }
 
-  // Finally: html5-qrcode
-  if (hasHtml5Qrcode()) {
-    await startHtml5();
-    return;
+  // 3. Final fallback: html5-qrcode
+  if (isHtml5QrcodeAvailable()) {
+    try {
+      await startHtml5Scanner();
+      return;
+    } catch (error) {
+      await stopScanning();
+    }
   }
 
-  await stopLive();
-  alert("No scanning engine available in this browser.");
+  await stopScanning();
+  alert("No scanner could be started in this browser.");
 }
 
-async function stopLive() {
-  running = false;
-  mode = "none";
+async function stopScanning() {
+  isScanning = false;
+  currentMode = "none";
 
-  // Stop native
-  if (rafId) cancelAnimationFrame(rafId);
-  rafId = null;
-
-  if (videoEl) {
-    try { videoEl.pause(); } catch (_) {}
-    videoEl.srcObject = null;
+  if (animationId) {
+    cancelAnimationFrame(animationId);
+    animationId = null;
   }
 
-  if (stream) {
-    stream.getTracks().forEach(t => t.stop());
-    stream = null;
+  if (video) {
+    try {
+      video.pause();
+    } catch (error) {
+      // ignore
+    }
+    video.srcObject = null;
   }
 
-  detector = null;
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(track => track.stop());
+    mediaStream = null;
+  }
 
-  // Stop html5-qrcode
-  if (html5) {
-    try { await html5.stop(); } catch (_) {}
-    try { await html5.clear(); } catch (_) {}
-    html5 = null;
-    $("reader").innerHTML = "";
+  nativeDetector = null;
+
+  if (html5Scanner) {
+    try {
+      await html5Scanner.stop();
+    } catch (error) {
+      // ignore
+    }
+
+    try {
+      await html5Scanner.clear();
+    } catch (error) {
+      // ignore
+    }
+
+    html5Scanner = null;
+    getEl("reader").innerHTML = "";
   }
 
   btnTorch.disabled = true;
-  torchOn = false;
   btnTorch.textContent = "Torch";
+  torchEnabled = false;
 
   btnStart.disabled = false;
   btnStop.disabled = true;
   btnOpenCrop.disabled = false;
 
-  setScanUiMode("none");
+  setViewMode("none");
   setStatus("Scanner stopped.");
 }
 
-// Native loop
-async function startNativeLoop() {
-  mode = "native";
-  setScanUiMode("native");
-  setStatus("Starting camera (native)...");
+async function startNativeScanner() {
+  currentMode = "native";
+  setViewMode("native");
+  setStatus("Starting native scanner...");
 
-  detector = await buildNativeDetector();
-  stream = await navigator.mediaDevices.getUserMedia(CONFIG.cameraConstraints);
+  nativeDetector = await createNativeDetector();
+  mediaStream = await navigator.mediaDevices.getUserMedia(CONFIG.cameraConstraints);
 
-  videoEl.srcObject = stream;
-  await videoEl.play();
+  video.srcObject = mediaStream;
+  await video.play();
 
-  // Torch enable if supported
   btnTorch.disabled = false;
+
   btnTorch.onclick = async () => {
-    torchOn = !torchOn;
+    torchEnabled = !torchEnabled;
+
     try {
-      const ok = await tryEnableTorch(stream, torchOn);
-      if (!ok) throw new Error("Torch not supported");
-      btnTorch.textContent = torchOn ? "Torch: ON" : "Torch";
-    } catch {
-      torchOn = false;
-      btnTorch.textContent = "Torch";
+      const success = await toggleTorch(mediaStream, torchEnabled);
+
+      if (!success) {
+        throw new Error("Torch not supported");
+      }
+
+      btnTorch.textContent = torchEnabled ? "Torch: ON" : "Torch";
+    } catch (error) {
+      torchEnabled = false;
       btnTorch.disabled = true;
+      btnTorch.textContent = "Torch";
     }
   };
 
-  const loop = async () => {
-    if (!running || mode !== "native") return;
+  const scanLoop = async () => {
+    if (!isScanning || currentMode !== "native") return;
 
     try {
-      const res = await detector.detect(videoEl);
-      if (res && res.length && res[0].rawValue) {
-        setCode(res[0].rawValue);
+      const results = await nativeDetector.detect(video);
+
+      if (results && results.length && results[0].rawValue) {
+        setDetectedCode(results[0].rawValue);
         setStatus("Code detected.");
-        if (CONFIG.stopAfterFirst) await stopLive();
+
+        if (CONFIG.stopAfterFirstSuccess) {
+          await stopScanning();
+        }
         return;
       }
-    } catch (_) {}
+    } catch (error) {
+      // Ignore frame-level failures and continue scanning
+    }
 
-    rafId = requestAnimationFrame(loop);
+    animationId = requestAnimationFrame(scanLoop);
   };
 
-  rafId = requestAnimationFrame(loop);
-  setStatus("Camera running. Aim at barcode/QR.");
+  animationId = requestAnimationFrame(scanLoop);
+  setStatus("Camera running. Point the camera at the label.");
 }
 
-// ZXing live loop (frame-grab)
-async function startZXingLoop() {
-  mode = "zxing";
-  setScanUiMode("native"); // uses video element
-  setStatus("Starting camera (ZXing live)...");
+async function startZXingScanner() {
+  currentMode = "native";
+  setViewMode("native");
+  setStatus("Starting ZXing scanner...");
 
-  stream = await navigator.mediaDevices.getUserMedia(CONFIG.cameraConstraints);
-  videoEl.srcObject = stream;
-  await videoEl.play();
+  mediaStream = await navigator.mediaDevices.getUserMedia(CONFIG.cameraConstraints);
+  video.srcObject = mediaStream;
+  await video.play();
 
-  const loop = async () => {
-    if (!running || mode !== "zxing") return;
+  const scanLoop = async () => {
+    if (!isScanning) return;
 
     try {
-      const text = await decodeVideoFrameZXing(videoEl);
-      if (text) {
-        setCode(text);
+      const decodedText = await decodeFromVideoFrame(video);
+
+      if (decodedText) {
+        setDetectedCode(decodedText);
         setStatus("Code detected.");
-        if (CONFIG.stopAfterFirst) await stopLive();
+
+        if (CONFIG.stopAfterFirstSuccess) {
+          await stopScanning();
+        }
         return;
       }
-    } catch (_) {}
+    } catch (error) {
+      // Ignore frame-level failures and continue scanning
+    }
 
-    rafId = requestAnimationFrame(loop);
+    animationId = requestAnimationFrame(scanLoop);
   };
 
-  rafId = requestAnimationFrame(loop);
-  setStatus("Camera running. Aim at barcode/QR.");
+  animationId = requestAnimationFrame(scanLoop);
+  setStatus("Camera running. Point the camera at the label.");
 }
 
-// html5-qrcode
-async function startHtml5() {
-  mode = "html5";
-  setScanUiMode("html5");
-  setStatus("Starting camera (html5-qrcode)...");
+async function startHtml5Scanner() {
+  currentMode = "html5";
+  setViewMode("html5");
+  setStatus("Starting html5-qrcode scanner...");
 
-  html5 = createHtml5Scanner("reader");
-  await html5.start(
+  html5Scanner = createHtml5Scanner("reader");
+
+  await html5Scanner.start(
     { facingMode: "environment" },
-    { fps: 10, qrbox: { width: 340, height: 340 }, rememberLastUsedCamera: true },
-    async (decodedText) => {
-      setCode(decodedText);
-      setStatus("Code detected.");
-      if (CONFIG.stopAfterFirst) await stopLive();
+    {
+      fps: 10,
+      qrbox: { width: 340, height: 340 },
+      rememberLastUsedCamera: true
     },
-    (_err) => {}
+    async (decodedText) => {
+      setDetectedCode(decodedText);
+      setStatus("Code detected.");
+
+      if (CONFIG.stopAfterFirstSuccess) {
+        await stopScanning();
+      }
+    },
+    () => {
+      // Ignore noisy per-frame errors
+    }
   );
 
-  setStatus("Camera running. Aim at barcode/QR.");
+  setStatus("Camera running. Point the camera at the label.");
 }
 
-// ------- Crop flow -------
-async function openCrop() {
+// -------------------------
+// Upload / crop flow
+// -------------------------
+async function openCropper() {
   const file = fileInput.files && fileInput.files[0];
-  if (!file) return alert("Choose an image first.");
 
-  // Stop live scanning if running
-  if (running) await stopLive();
+  if (!file) {
+    alert("Please choose an image first.");
+    return;
+  }
 
-  mode = "crop";
-  setScanUiMode("crop");
-  setStatus("Adjust crop rectangle, then Decode.");
+  if (isScanning) {
+    await stopScanning();
+  }
+
+  currentMode = "crop";
+  setViewMode("crop");
+  setStatus("Adjust the crop area, then decode.");
 
   await cropper.loadFile(file);
 }
 
-async function decodeCrop() {
-  setStatus("Decoding cropped area...");
-  const cropped = cropper.getCroppedCanvas();
-  const decoded = await decodeFromCroppedCanvas(cropped);
+async function decodeCropArea() {
+  setStatus("Trying to decode cropped image...");
 
-  if (!decoded) {
+  const croppedCanvas = cropper.getCroppedCanvas();
+  const decodedText = await decodeUploadedCanvas(croppedCanvas);
+
+  if (!decodedText) {
     setStatus("");
-    alert("Could not decode. Try a tighter crop around the code or a clearer photo.");
+    alert("Could not decode. Try a tighter crop or a clearer image.");
     return;
   }
 
-  setCode(decoded);
-  setStatus("Code detected from crop.");
-  // stay in crop mode until user cancels, or auto-exit:
-  // cancelCrop();
+  setDetectedCode(decodedText);
+  setStatus("Code detected from uploaded image.");
 }
 
-function cancelCrop() {
-  mode = "none";
-  setScanUiMode("none");
+function cancelCropper() {
+  currentMode = "none";
+  setViewMode("none");
   setStatus("");
 }
 
-// ------- Button wiring -------
-btnStart.addEventListener("click", startLive);
-btnStop.addEventListener("click", stopLive);
+// -------------------------
+// Button bindings
+// -------------------------
+btnStart.addEventListener("click", startScanning);
+btnStop.addEventListener("click", stopScanning);
 
-btnOpenCrop.addEventListener("click", openCrop);
-btnCropDecode.addEventListener("click", decodeCrop);
+btnOpenCrop.addEventListener("click", openCropper);
+btnCropDecode.addEventListener("click", decodeCropArea);
 btnCropAuto.addEventListener("click", () => cropper.autoCropGuess());
-btnCropCancel.addEventListener("click", cancelCrop);
+btnCropCancel.addEventListener("click", cancelCropper);

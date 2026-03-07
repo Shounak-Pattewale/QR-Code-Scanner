@@ -1,103 +1,120 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QR Tracker - Scan Test</title>
 
   <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap/css/bootstrap.min.css') }}">
 
   <style>
-    #readerWrap { width: 100%; max-width: 620px; }
-    #video { width: 100%; border-radius: 12px; background: #000; display:none; }
-    #reader { width: 100%; display:none; } /* html5-qrcode mount */
-    #cropCanvas { width: 100%; border-radius: 12px; background:#111; display:none; touch-action:none; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace; }
-    .hint { font-size: .875rem; color:#6c757d; }
+    #readerWrap {
+      width: 100%;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    #video,
+    #reader,
+    #cropCanvas {
+      width: 100%;
+      border-radius: 12px;
+      background: #111;
+      display: none;
+    }
+
+    #cropCanvas {
+      touch-action: none;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                   "Liberation Mono", "Courier New", monospace;
+    }
+
+    .small-hint {
+      font-size: 0.9rem;
+      color: #6c757d;
+    }
   </style>
 </head>
-
 <body class="bg-light">
-<div class="container py-3">
-  <h4 class="mb-3">Verification by Marking Code</h4>
+  <div class="container py-3">
+    <h4 class="mb-3">Verification by Marking Code</h4>
 
-  <div class="card mb-3">
-    <div class="card-body">
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex flex-wrap gap-2">
+          <button id="btnStart" class="btn btn-primary">Scan Package Code</button>
+          <button id="btnStop" class="btn btn-outline-secondary" disabled>Stop</button>
+          <button id="btnTorch" class="btn btn-outline-warning" disabled>Torch</button>
+        </div>
 
-      <div class="d-flex gap-2 flex-wrap">
-        <button id="btnStart" class="btn btn-primary">Scan Package Code</button>
-        <button id="btnStop" class="btn btn-outline-secondary" disabled>Stop</button>
-        <button id="btnTorch" class="btn btn-outline-warning" disabled>Torch</button>
-      </div>
+        <div class="mt-3">
+          <label class="form-label">Manual input</label>
+          <div class="input-group">
+            <input id="manualInput" type="text" class="form-control mono" placeholder="Enter / paste code here">
+            <button id="btnUseManual" class="btn btn-outline-primary">Use</button>
+          </div>
+          <div class="small-hint">Use this if the code is damaged or camera scan fails.</div>
+        </div>
 
-      <div class="mt-3">
-        <label class="form-label">Manual input</label>
+        <div class="mt-3">
+          <label class="form-label">Upload image</label>
+          <div class="input-group">
+            <input id="fileInput" type="file" class="form-control" accept="image/*">
+            <button id="btnOpenCrop" class="btn btn-outline-primary">Crop & Scan</button>
+          </div>
+          <div class="small-hint">
+            Best backup option for long barcodes, damaged labels, or blurry photos.
+          </div>
+        </div>
+
+        <hr class="my-3">
+
+        <label class="form-label">Detected code</label>
         <div class="input-group">
-          <input id="manualInput" type="text" class="form-control mono" placeholder="Enter / paste code here">
-          <button id="btnUseManual" class="btn btn-outline-primary">Use</button>
+          <input id="codeDisplay" type="text" class="form-control mono" readonly>
+          <button id="btnCopy" class="btn btn-outline-success" disabled>Copy</button>
         </div>
-        <div class="hint">If scanning fails, paste the code.</div>
-      </div>
 
-      <div class="mt-3">
-        <label class="form-label">Upload image (backup)</label>
-        <div class="input-group">
-          <input id="fileInput" type="file" class="form-control" accept="image/*">
-          <button id="btnOpenCrop" class="btn btn-outline-primary">Crop & Scan</button>
+        <div id="toast" class="alert alert-success mt-3 py-2 d-none" role="alert">
+          Copied
         </div>
-        <div class="hint">
-          Best backup for hard 1D codes: upload photo/screenshot → crop barcode → decode.
+
+        <div id="status" class="text-muted small mt-2"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div id="readerWrap">
+          <video id="video" playsinline></video>
+          <div id="reader"></div>
+          <canvas id="cropCanvas"></canvas>
+
+          <div id="cropControls" class="mt-2 d-none">
+            <div class="d-flex flex-wrap gap-2">
+              <button id="btnCropDecode" class="btn btn-success">Decode Cropped Area</button>
+              <button id="btnCropAuto" class="btn btn-outline-primary">Auto Crop Guess</button>
+              <button id="btnCropCancel" class="btn btn-outline-secondary">Cancel</button>
+            </div>
+            <div class="small-hint mt-2">
+              Drag the green rectangle over the barcode or QR area, then click Decode.
+            </div>
+          </div>
+        </div>
+
+        <div class="small-hint mt-2">
+          Camera works best on HTTPS or localhost. Use the rear camera for scanning.
         </div>
       </div>
-
-      <hr class="my-3">
-
-      <label class="form-label">Marking code (always visible)</label>
-      <div class="input-group">
-        <input id="codeDisplay" type="text" class="form-control mono" readonly>
-        <button id="btnCopy" class="btn btn-outline-success" disabled>Copy</button>
-      </div>
-
-      <div id="toast" class="alert alert-success mt-3 py-2 d-none" role="alert">Copied</div>
-      <div id="status" class="text-muted small mt-2"></div>
-
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-body">
-      <div id="readerWrap">
-        <video id="video" playsinline></video>
-        <div id="reader"></div>
-
-        <!-- Crop UI -->
-        <canvas id="cropCanvas"></canvas>
-        <div id="cropControls" class="mt-2 d-none">
-          <div class="d-flex gap-2 flex-wrap">
-            <button id="btnCropDecode" class="btn btn-success">Decode Cropped Area</button>
-            <button id="btnCropAuto" class="btn btn-outline-primary">Auto-Crop Guess</button>
-            <button id="btnCropCancel" class="btn btn-outline-secondary">Cancel</button>
-          </div>
-          <div class="hint mt-2">
-            Drag/resize the rectangle to cover only the barcode/QR. Then Decode.
-          </div>
-        </div>
-      </div>
-
-      <div class="hint mt-2">
-        Camera access works on <strong>https</strong> or <strong>http://localhost</strong>.
-      </div>
-    </div>
-  </div>
-</div>
-
-<script src="{{ url_for('static', filename='bootstrap/js/bootstrap.bundle.min.js') }}"></script>
-
-<!-- Vendor libs (local, no CDN) -->
-<script src="{{ url_for('static', filename='vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
-<script src="{{ url_for('static', filename='vendor/zxing/zxing.min.js') }}"></script>
-
-<!-- App modules -->
-<script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script src="{{ url_for('static', filename='bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='vendor/zxing/zxing.min.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

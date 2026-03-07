@@ -1,7 +1,13 @@
-export function hasHtml5Qrcode() {
+/*
+  html5-qrcode helper.
+
+  This is our final browser-side fallback scanner.
+*/
+
+export function isHtml5QrcodeAvailable() {
   return typeof window.Html5Qrcode !== "undefined";
 }
 
-export function createHtml5Scanner(mountId) {
-  return new window.Html5Qrcode(mountId);
+export function createHtml5Scanner(mountElementId) {
+  return new window.Html5Qrcode(mountElementId);
 }

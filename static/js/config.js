@@ -1,9 +1,20 @@
-export const CONFIG = {
-  // Live scanning
-  preferNative: true,
-  stopAfterFirst: true,
+/*
+  Central configuration file.
 
-  // Camera constraints (higher res helps 1D barcodes)
+  Keep all tuneable values here so you do not have to search through
+  all JS files later.
+*/
+
+export const CONFIG = {
+  // We prefer the browser's native BarcodeDetector first because it is
+  // fast and often works very well on Android devices.
+  preferNative: true,
+
+  // Stop scanner after first successful scan.
+  // Good for this app because user scans one package and then sees details.
+  stopAfterFirstSuccess: true,
+
+  // Camera constraints: higher resolution improves long 1D barcode reading.
   cameraConstraints: {
     video: {
       facingMode: { ideal: "environment" },
@@ -13,16 +24,29 @@ export const CONFIG = {
     audio: false
   },
 
-  // Native detector formats (browser will ignore unsupported)
+  // Barcode formats we want the browser to try if supported.
   nativeFormats: [
-    "qr_code", "data_matrix", "pdf417", "aztec",
-    "code_128", "code_39", "code_93",
-    "ean_13", "ean_8", "itf", "upc_a", "upc_e"
+    "qr_code",
+    "data_matrix",
+    "code_128",
+    "ean_13",
+    "ean_8",
+    "itf",
+    "upc_a",
+    "upc_e",
+    "pdf417",
+    "aztec"
   ],
 
-  // Crop defaults (percentage of canvas)
-  cropDefault: { x: 0.1, y: 0.35, w: 0.8, h: 0.3 },
+  // Default crop rectangle used when user uploads an image.
+  defaultCrop: {
+    x: 0.10,
+    y: 0.35,
+    w: 0.80,
+    h: 0.25
+  },
 
-  // Preprocess scaling for uploaded decode
+  // Preprocessing scale for uploaded images.
+  // Enlarging helps barcode decoders read thin bars.
   uploadScale: 2
 };
