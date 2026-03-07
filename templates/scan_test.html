@@ -1,6 +1,5 @@
 <!doctype html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -30,7 +29,7 @@
 
     .mono {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-        "Liberation Mono", "Courier New", monospace;
+                   "Liberation Mono", "Courier New", monospace;
     }
 
     .small-hint {
@@ -39,10 +38,9 @@
     }
   </style>
 </head>
-
 <body class="bg-light">
   <div class="container py-3">
-    <h4 class="mb-3">Verification by Marking Code 1.0.1</h4>
+    <h4 class="mb-3">Verification by Marking Code v1.0</h4>
 
     <div class="card mb-3">
       <div class="card-body">
@@ -63,22 +61,12 @@
 
         <div class="mt-3">
           <label class="form-label">Upload image</label>
-
-          <div class="d-flex flex-wrap gap-2">
-            <!-- General image picker -->
-            <input id="fileInput" type="file" class="form-control" accept="image/*" style="max-width: 280px;">
-
-            <!-- Rear camera capture on supported phones -->
-            <input id="cameraInput" type="file" class="form-control" accept="image/*" capture="environment"
-              style="max-width: 280px;">
-          </div>
-
-          <div class="mt-2">
+          <div class="input-group">
+            <input id="fileInput" type="file" class="form-control" accept="image/*">
             <button id="btnOpenCrop" class="btn btn-outline-primary">Crop & Scan</button>
           </div>
-
-          <div class="small-hint mt-2">
-            Use gallery/files or take a fresh photo if live scanning fails.
+          <div class="small-hint">
+            Best backup option for long barcodes, damaged labels, or blurry photos.
           </div>
         </div>
 
@@ -101,7 +89,7 @@
     <div class="card">
       <div class="card-body">
         <div id="readerWrap">
-          <video id="video" playsinline muted></video>
+          <video id="video" playsinline></video>
           <div id="reader"></div>
           <canvas id="cropCanvas"></canvas>
 
@@ -129,5 +117,4 @@
   <script src="{{ url_for('static', filename='vendor/zxing/zxing.min.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
-
 </html>

@@ -48,7 +48,6 @@ const btnCropCancel = getEl("btnCropCancel");
 
 const manualInput = getEl("manualInput");
 const fileInput = getEl("fileInput");
-const cameraInput = getEl("cameraInput");
 const video = getEl("video");
 const cropCanvas = getEl("cropCanvas");
 
@@ -66,14 +65,6 @@ let torchEnabled = false;
 let html5Scanner = null;
 
 const cropper = new Cropper(cropCanvas);
-
-// -------------------------
-// Device helpers
-// -------------------------
-function isIOS() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-         (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-}
 
 // -------------------------
 // UI actions
@@ -111,54 +102,41 @@ async function startScanning() {
   btnStop.disabled = false;
   btnOpenCrop.disabled = true;
 
-  // On iPhone, native and ZXing live paths can be less stable.
-  // Prefer html5-qrcode earlier there because it previously worked better.
-  if (!isIOS() && CONFIG.preferNative && isNativeDetectorAvailable()) {
+  // 1. Try native detector first
+  if (CONFIG.preferNative && isNativeDetectorAvailable()) {
     try {
       await startNativeScanner();
       return;
     } catch (error) {
-      console.error("Native scanner failed:", error);
-      await stopScanning(false);
+      await stopScanning();
     }
   }
 
-  if (!isIOS() && isZXingAvailable()) {
+  // 2. Then try ZXing live decoding
+  if (isZXingAvailable()) {
     try {
       await startZXingScanner();
       return;
     } catch (error) {
-      console.error("ZXing live scanner failed:", error);
-      await stopScanning(false);
+      await stopScanning();
     }
   }
 
+  // 3. Final fallback: html5-qrcode
   if (isHtml5QrcodeAvailable()) {
     try {
       await startHtml5Scanner();
       return;
     } catch (error) {
-      console.error("html5-qrcode scanner failed:", error);
-      await stopScanning(false);
+      await stopScanning();
     }
   }
 
-  // On iPhone, if html5-qrcode also fails, try native last.
-  if (isIOS() && CONFIG.preferNative && isNativeDetectorAvailable()) {
-    try {
-      await startNativeScanner();
-      return;
-    } catch (error) {
-      console.error("Native scanner failed on iOS fallback:", error);
-      await stopScanning(false);
-    }
-  }
-
-  await stopScanning(false);
-  alert("Camera could not be started on this device/browser. Try Upload Image or Take Photo.");
+  await stopScanning();
+  alert("No scanner could be started in this browser.");
 }
 
-async function stopScanning(showMessage = true) {
+async function stopScanning() {
   isScanning = false;
   currentMode = "none";
 
@@ -173,7 +151,6 @@ async function stopScanning(showMessage = true) {
     } catch (error) {
       // ignore
     }
-
     video.srcObject = null;
   }
 
@@ -210,27 +187,18 @@ async function stopScanning(showMessage = true) {
   btnOpenCrop.disabled = false;
 
   setViewMode("none");
-
-  if (showMessage) {
-    setStatus("Scanner stopped.");
-  }
+  setStatus("Scanner stopped.");
 }
 
 async function startNativeScanner() {
   currentMode = "native";
   setViewMode("native");
-  setStatus("Starting camera...");
+  setStatus("Starting native scanner...");
 
   nativeDetector = await createNativeDetector();
   mediaStream = await navigator.mediaDevices.getUserMedia(CONFIG.cameraConstraints);
 
   video.srcObject = mediaStream;
-
-  // Important for iPhone / mobile browsers
-  video.setAttribute("playsinline", "true");
-  video.setAttribute("muted", "true");
-  video.muted = true;
-
   await video.play();
 
   btnTorch.disabled = false;
@@ -269,7 +237,7 @@ async function startNativeScanner() {
         return;
       }
     } catch (error) {
-      // ignore frame-level errors
+      // Ignore frame-level failures and continue scanning
     }
 
     animationId = requestAnimationFrame(scanLoop);
@@ -282,15 +250,10 @@ async function startNativeScanner() {
 async function startZXingScanner() {
   currentMode = "native";
   setViewMode("native");
-  setStatus("Starting camera...");
+  setStatus("Starting ZXing scanner...");
 
   mediaStream = await navigator.mediaDevices.getUserMedia(CONFIG.cameraConstraints);
-
   video.srcObject = mediaStream;
-  video.setAttribute("playsinline", "true");
-  video.setAttribute("muted", "true");
-  video.muted = true;
-
   await video.play();
 
   const scanLoop = async () => {
@@ -309,7 +272,7 @@ async function startZXingScanner() {
         return;
       }
     } catch (error) {
-      // ignore frame-level errors
+      // Ignore frame-level failures and continue scanning
     }
 
     animationId = requestAnimationFrame(scanLoop);
@@ -322,7 +285,7 @@ async function startZXingScanner() {
 async function startHtml5Scanner() {
   currentMode = "html5";
   setViewMode("html5");
-  setStatus("Starting camera...");
+  setStatus("Starting html5-qrcode scanner...");
 
   html5Scanner = createHtml5Scanner("reader");
 
@@ -342,7 +305,7 @@ async function startHtml5Scanner() {
       }
     },
     () => {
-      // ignore noisy frame errors
+      // Ignore noisy per-frame errors
     }
   );
 
@@ -353,17 +316,15 @@ async function startHtml5Scanner() {
 // Upload / crop flow
 // -------------------------
 async function openCropper() {
-  const file =
-    (cameraInput && cameraInput.files && cameraInput.files[0]) ||
-    (fileInput && fileInput.files && fileInput.files[0]);
+  const file = fileInput.files && fileInput.files[0];
 
   if (!file) {
-    alert("Please choose an image or take a photo first.");
+    alert("Please choose an image first.");
     return;
   }
 
   if (isScanning) {
-    await stopScanning(false);
+    await stopScanning();
   }
 
   currentMode = "crop";
@@ -399,7 +360,7 @@ function cancelCropper() {
 // Button bindings
 // -------------------------
 btnStart.addEventListener("click", startScanning);
-btnStop.addEventListener("click", () => stopScanning());
+btnStop.addEventListener("click", stopScanning);
 
 btnOpenCrop.addEventListener("click", openCropper);
 btnCropDecode.addEventListener("click", decodeCropArea);
