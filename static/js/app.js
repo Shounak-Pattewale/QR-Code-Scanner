@@ -241,19 +241,42 @@ async function openCrop() {
   await cropper.loadFile(file);
 }
 
+// async function decodeCrop() {
+//   setStatus("Decoding cropped area...");
+//   const cropped = cropper.getCroppedCanvas();
+//   const decoded = await decodeFromCroppedCanvas(cropped);
+
+//   if (!decoded) {
+//     setStatus("");
+//     alert("Could not decode. Try a tighter crop around the code or a clearer photo.");
+//     return;
+//   }
+
+//   setCode(decoded);
+//   setStatus("Code detected from crop.");
+// }
+
 async function decodeCrop() {
+  alert("Decode button clicked");
   setStatus("Decoding cropped area...");
-  const cropped = cropper.getCroppedCanvas();
-  const decoded = await decodeFromCroppedCanvas(cropped);
 
-  if (!decoded) {
-    setStatus("");
-    alert("Could not decode. Try a tighter crop around the code or a clearer photo.");
-    return;
+  try {
+    const cropped = cropper.getCroppedCanvas();
+    const decoded = await decodeFromCroppedCanvas(cropped);
+
+    if (!decoded) {
+      setStatus("Could not decode cropped image.");
+      alert("Could not decode. Try a tighter crop around the code or a clearer photo.");
+      return;
+    }
+
+    setCode(decoded);
+    setStatus("Code detected from crop.");
+  } catch (error) {
+    console.error("decodeCrop failed:", error);
+    setStatus("Decode failed on this device.");
+    alert("Decode failed on this device. Please try a different crop or use manual entry.");
   }
-
-  setCode(decoded);
-  setStatus("Code detected from crop.");
 }
 
 function cancelCrop() {

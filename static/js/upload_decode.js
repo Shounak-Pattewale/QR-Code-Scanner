@@ -27,11 +27,15 @@ function preprocessCanvas(srcCanvas) {
   const d = img.data;
 
   for (let i = 0; i < d.length; i += 4) {
-    const r = d[i], g = d[i + 1], b = d[i + 2];
-    let y = (0.299*r + 0.587*g + 0.114*b);
+    const r = d[i];
+    const g = d[i + 1];
+    const b = d[i + 2];
+
+    let y = (0.299 * r + 0.587 * g + 0.114 * b);
     y = (y - 128) * 1.4 + 128;
     y = Math.max(0, Math.min(255, y));
-    d[i] = d[i+1] = d[i+2] = y;
+
+    d[i] = d[i + 1] = d[i + 2] = y;
   }
 
   ctx.putImageData(img, 0, 0);
@@ -45,35 +49,87 @@ async function canvasToImage(canvas) {
   return img;
 }
 
+async function canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("Canvas toBlob failed"));
+        return;
+      }
+      resolve(blob);
+    }, "image/png");
+  });
+}
+
 export async function decodeFromCroppedCanvas(cropCanvas) {
   const processed = preprocessCanvas(cropCanvas);
 
+  // 1) Native BarcodeDetector
   if (hasNativeBarcodeDetector()) {
     try {
       const det = await buildNativeDetector();
       const res = await det.detect(processed);
-      if (res && res.length && res[0].rawValue) return res[0].rawValue;
-    } catch (_) {}
+
+      if (res && res.length && res[0].rawValue) {
+        return res[0].rawValue;
+      }
+    } catch (error) {
+      console.log("Native detector failed:", error);
+    }
   }
 
+  // 2) ZXing
   if (hasZXing()) {
     try {
       const img = await canvasToImage(processed);
       const text = await decodeImageElementZXing(img);
-      if (text) return text;
-    } catch (_) {}
+
+      if (text) {
+        return text;
+      }
+    } catch (error) {
+      console.log("ZXing decode failed:", error);
+    }
   }
 
+  // 3) html5-qrcode fallback
   if (hasHtml5Qrcode()) {
+    let tmp = null;
+
     try {
-      const blob = await new Promise((resolve) => processed.toBlob(resolve, "image/png"));
+      const blob = await canvasToBlob(processed);
+
+      // Some mobile browsers are happier with Blob than File-like handling via name/type fallback.
       const file = new File([blob], "crop.png", { type: "image/png" });
 
-      const tmp = new Html5Qrcode("reader");
+      tmp = new Html5Qrcode("reader");
       const decoded = await tmp.scanFile(file, true);
-      try { await tmp.clear(); } catch (_) {}
-      if (decoded) return decoded;
-    } catch (_) {}
+
+      if (decoded) {
+        return decoded;
+      }
+    } catch (error) {
+      console.log("html5-qrcode File decode failed:", error);
+
+      // Extra fallback for stricter mobile browsers:
+      // convert canvas to data URL image and let ZXing try once more
+      try {
+        const img = await canvasToImage(processed);
+        const text = await decodeImageElementZXing(img);
+
+        if (text) {
+          return text;
+        }
+      } catch (innerError) {
+        console.log("Final mobile fallback failed:", innerError);
+      }
+    } finally {
+      if (tmp) {
+        try {
+          await tmp.clear();
+        } catch (_) {}
+      }
+    }
   }
 
   return null;
