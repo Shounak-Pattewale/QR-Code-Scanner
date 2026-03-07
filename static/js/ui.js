@@ -8,70 +8,46 @@
   - copy feedback
 */
 
-export function getEl(id) {
-  return document.getElementById(id);
+export function $(id) { return document.getElementById(id); }
+
+export function setStatus(msg) {
+  $("status").textContent = msg || "";
 }
 
-export function setStatus(message) {
-  getEl("status").textContent = message || "";
-}
-
-export function setDetectedCode(code) {
-  const value = (code || "").trim();
-
-  getEl("codeDisplay").value = value;
-  getEl("btnCopy").disabled = !value;
-}
-
-export function clearDetectedCode() {
-  setDetectedCode("");
+export function setCode(code) {
+  const v = (code || "").trim();
+  $("codeDisplay").value = v;
+  $("btnCopy").disabled = !v;
 }
 
 export function showCopiedToast() {
-  const toast = getEl("toast");
-  toast.classList.remove("d-none");
-
-  setTimeout(() => {
-    toast.classList.add("d-none");
-  }, 900);
+  const t = $("toast");
+  t.classList.remove("d-none");
+  setTimeout(() => t.classList.add("d-none"), 900);
 }
 
-export async function copyText(text) {
+export async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text);
     return true;
-  } catch (error) {
-    // Fallback for older browsers
-    const input = getEl("codeDisplay");
-    input.removeAttribute("readonly");
-    input.select();
+  } catch {
+    const inp = $("codeDisplay");
+    inp.removeAttribute("readonly");
+    inp.select();
     document.execCommand("copy");
-    input.setAttribute("readonly", "readonly");
+    inp.setAttribute("readonly", "readonly");
     return true;
   }
 }
 
-export function setViewMode(mode) {
-  /*
-    mode:
-    - "none"
-    - "native"
-    - "html5"
-    - "crop"
-  */
+export function setScanUiMode(mode) {
+  const video = $("video");
+  const reader = $("reader");
+  const cropCanvas = $("cropCanvas");
+  const cropControls = $("cropControls");
 
-  const video = getEl("video");
-  const reader = getEl("reader");
-  const cropCanvas = getEl("cropCanvas");
-  const cropControls = getEl("cropControls");
-
-  video.style.display = mode === "native" ? "block" : "none";
-  reader.style.display = mode === "html5" ? "block" : "none";
-  cropCanvas.style.display = mode === "crop" ? "block" : "none";
-
-  if (mode === "crop") {
-    cropControls.classList.remove("d-none");
-  } else {
-    cropControls.classList.add("d-none");
-  }
+  video.style.display = (mode === "native") ? "block" : "none";
+  reader.style.display = (mode === "html5") ? "block" : "none";
+  cropCanvas.style.display = (mode === "crop") ? "block" : "none";
+  cropControls.classList.toggle("d-none", mode !== "crop");
 }

@@ -4,10 +4,10 @@
   This is our final browser-side fallback scanner.
 */
 
-export function isHtml5QrcodeAvailable() {
+export function hasHtml5Qrcode() {
   return typeof window.Html5Qrcode !== "undefined";
 }
 
-export function createHtml5Scanner(mountElementId) {
-  return new window.Html5Qrcode(mountElementId);
+export function createHtml5Scanner(mountId) {
+  return new window.Html5Qrcode(mountId);
 }

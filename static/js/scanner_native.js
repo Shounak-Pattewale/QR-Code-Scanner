@@ -7,40 +7,29 @@
 
 import { CONFIG } from "./config.js";
 
-export function isNativeDetectorAvailable() {
-  return "BarcodeDetector" in window;
+export function hasNativeBarcodeDetector() {
+  return ("BarcodeDetector" in window);
 }
 
-export async function createNativeDetector() {
-  // Some browsers expose supported formats.
+export async function buildNativeDetector() {
+  const desiredFormats = CONFIG.nativeFormats;
+
   if (window.BarcodeDetector.getSupportedFormats) {
-    const supportedFormats = await window.BarcodeDetector.getSupportedFormats();
-
-    const wantedFormats = CONFIG.nativeFormats.filter(format =>
-      supportedFormats.includes(format)
-    );
-
-    return new BarcodeDetector({
-      formats: wantedFormats.length ? wantedFormats : supportedFormats
-    });
+    const supported = await window.BarcodeDetector.getSupportedFormats();
+    const formats = desiredFormats.filter(f => supported.includes(f));
+    return new BarcodeDetector({ formats: formats.length ? formats : supported });
   }
 
-  // Fallback if browser does not expose supported formats.
-  return new BarcodeDetector({
-    formats: CONFIG.nativeFormats
-  });
+  return new BarcodeDetector({ formats: desiredFormats });
 }
 
-export async function toggleTorch(stream, enabled) {
+export async function tryEnableTorch(stream, on) {
   const track = stream?.getVideoTracks?.()[0];
   if (!track) return false;
 
-  const capabilities = track.getCapabilities?.();
-  if (!capabilities || !capabilities.torch) return false;
+  const caps = track.getCapabilities?.();
+  if (!caps || !caps.torch) return false;
 
-  await track.applyConstraints({
-    advanced: [{ torch: enabled }]
-  });
-
+  await track.applyConstraints({ advanced: [{ torch: on }] });
   return true;
 }

@@ -13,247 +13,194 @@ export class Cropper {
     this.ctx = canvas.getContext("2d", { willReadFrequently: true });
 
     this.image = null;
-
     this.rect = { x: 0, y: 0, w: 100, h: 80 };
 
-    this.isDragging = false;
-    this.resizeHandle = null;
-    this.lastPointer = { x: 0, y: 0 };
+    this.dragging = false;
+    this.resizing = null;
+    this.last = { x: 0, y: 0 };
 
-    this.bindEvents();
+    this._bindEvents();
   }
 
   async loadFile(file) {
-    const image = new Image();
-    image.src = URL.createObjectURL(file);
-    await image.decode();
-    URL.revokeObjectURL(image.src);
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+    await img.decode();
+    URL.revokeObjectURL(img.src);
 
-    this.image = image;
+    this.image = img;
 
-    const maxWidth = this.canvas.clientWidth || 600;
-    const scale = maxWidth / image.width;
+    const maxW = this.canvas.clientWidth || 600;
+    const scale = maxW / img.width;
+    this.canvas.width = Math.round(img.width * scale);
+    this.canvas.height = Math.round(img.height * scale);
 
-    this.canvas.width = Math.round(image.width * scale);
-    this.canvas.height = Math.round(image.height * scale);
-
-    this.setDefaultCrop();
+    this.setRectByPercent(CONFIG.cropDefault);
     this.render();
   }
 
-  setDefaultCrop() {
-    const W = this.canvas.width;
-    const H = this.canvas.height;
-
+  setRectByPercent(p) {
+    const W = this.canvas.width, H = this.canvas.height;
     this.rect = {
-      x: Math.round(W * CONFIG.defaultCrop.x),
-      y: Math.round(H * CONFIG.defaultCrop.y),
-      w: Math.round(W * CONFIG.defaultCrop.w),
-      h: Math.round(H * CONFIG.defaultCrop.h)
+      x: Math.round(W * p.x),
+      y: Math.round(H * p.y),
+      w: Math.round(W * p.w),
+      h: Math.round(H * p.h),
     };
   }
 
   autoCropGuess() {
-    /*
-      A simple default guess for long horizontal barcodes.
-      User can still adjust manually afterwards.
-    */
-    this.rect = {
-      x: Math.round(this.canvas.width * 0.08),
-      y: Math.round(this.canvas.height * 0.40),
-      w: Math.round(this.canvas.width * 0.84),
-      h: Math.round(this.canvas.height * 0.22)
-    };
-
+    this.setRectByPercent({ x: 0.08, y: 0.40, w: 0.84, h: 0.28 });
     this.render();
   }
 
   getCroppedCanvas() {
-    const output = document.createElement("canvas");
-    output.width = Math.max(1, Math.round(this.rect.w));
-    output.height = Math.max(1, Math.round(this.rect.h));
+    const out = document.createElement("canvas");
+    out.width = Math.max(1, Math.round(this.rect.w));
+    out.height = Math.max(1, Math.round(this.rect.h));
 
-    const outputContext = output.getContext("2d", { willReadFrequently: true });
-
-    outputContext.drawImage(
+    const octx = out.getContext("2d", { willReadFrequently: true });
+    octx.drawImage(
       this.canvas,
-      this.rect.x,
-      this.rect.y,
-      this.rect.w,
-      this.rect.h,
-      0,
-      0,
-      output.width,
-      output.height
+      this.rect.x, this.rect.y, this.rect.w, this.rect.h,
+      0, 0, out.width, out.height
     );
-
-    return output;
+    return out;
   }
 
   render() {
-    if (!this.image) return;
+    const { ctx, canvas, image } = this;
+    if (!image) return;
 
-    const ctx = this.ctx;
-    const canvas = this.canvas;
-    const rect = this.rect;
-
-    // Draw original image to canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(this.image, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
 
-    // Dark overlay
+    const r = this.rect;
+
     ctx.save();
-    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Show the image clearly inside crop area
     ctx.beginPath();
-    ctx.rect(rect.x, rect.y, rect.w, rect.h);
+    ctx.rect(r.x, r.y, r.w, r.h);
     ctx.clip();
 
-    ctx.clearRect(rect.x, rect.y, rect.w, rect.h);
-    ctx.drawImage(this.image, 0, 0, canvas.width, canvas.height);
+    ctx.clearRect(r.x, r.y, r.w, r.h);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
     ctx.restore();
 
-    // Crop border
     ctx.save();
-    ctx.strokeStyle = "rgba(0, 255, 0, 0.95)";
+    ctx.strokeStyle = "rgba(0,255,0,0.95)";
     ctx.lineWidth = 2;
-    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
 
-    // Resize handles
-    const size = 10;
-    const handles = this.getHandles();
-
-    ctx.fillStyle = "rgba(0, 255, 0, 0.95)";
-    for (const handle of Object.values(handles)) {
-      ctx.fillRect(handle.x - size / 2, handle.y - size / 2, size, size);
+    const s = 10;
+    const handles = this._handles();
+    ctx.fillStyle = "rgba(0,255,0,0.95)";
+    for (const h of Object.values(handles)) {
+      ctx.fillRect(h.x - s / 2, h.y - s / 2, s, s);
     }
-
     ctx.restore();
   }
 
-  getHandles() {
+  _handles() {
     const r = this.rect;
-
     return {
       nw: { x: r.x, y: r.y },
       ne: { x: r.x + r.w, y: r.y },
       sw: { x: r.x, y: r.y + r.h },
-      se: { x: r.x + r.w, y: r.y + r.h }
+      se: { x: r.x + r.w, y: r.y + r.h },
     };
   }
 
-  hitTestHandle(x, y) {
-    const handles = this.getHandles();
+  _hitTestHandle(x, y) {
+    const handles = this._handles();
     const radius = 14;
-
-    for (const [name, point] of Object.entries(handles)) {
-      const dx = x - point.x;
-      const dy = y - point.y;
-
-      if ((dx * dx + dy * dy) <= radius * radius) {
-        return name;
-      }
+    for (const [k, p] of Object.entries(handles)) {
+      const dx = x - p.x, dy = y - p.y;
+      if ((dx * dx + dy * dy) <= radius * radius) return k;
     }
-
     return null;
   }
 
-  isInsideRect(x, y) {
+  _pointInRect(x, y) {
     const r = this.rect;
     return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
   }
 
-  bindEvents() {
-    const getPoint = (event) => {
-      const box = this.canvas.getBoundingClientRect();
-      const source = event.touches ? event.touches[0] : event;
+  _bindEvents() {
+    const c = this.canvas;
 
-      return {
-        x: source.clientX - box.left,
-        y: source.clientY - box.top
-      };
+    const getXY = (e) => {
+      const rect = c.getBoundingClientRect();
+      const pt = (e.touches && e.touches[0]) ? e.touches[0] : e;
+      return { x: pt.clientX - rect.left, y: pt.clientY - rect.top };
     };
 
-    const onDown = (event) => {
+    const down = (e) => {
       if (!this.image) return;
+      e.preventDefault();
 
-      event.preventDefault();
+      const { x, y } = getXY(e);
+      this.last = { x, y };
 
-      const point = getPoint(event);
-      this.lastPointer = point;
-
-      const handle = this.hitTestHandle(point.x, point.y);
-
-      if (handle) {
-        this.resizeHandle = handle;
-        this.isDragging = false;
+      const h = this._hitTestHandle(x, y);
+      if (h) {
+        this.resizing = h;
+        this.dragging = false;
         return;
       }
 
-      if (this.isInsideRect(point.x, point.y)) {
-        this.isDragging = true;
-        this.resizeHandle = null;
+      if (this._pointInRect(x, y)) {
+        this.dragging = true;
+        this.resizing = null;
       }
     };
 
-    const onMove = (event) => {
+    const move = (e) => {
       if (!this.image) return;
-      if (!this.isDragging && !this.resizeHandle) return;
+      if (!this.dragging && !this.resizing) return;
 
-      event.preventDefault();
-
-      const point = getPoint(event);
-      const dx = point.x - this.lastPointer.x;
-      const dy = point.y - this.lastPointer.y;
-
-      this.lastPointer = point;
+      e.preventDefault();
+      const { x, y } = getXY(e);
+      const dx = x - this.last.x;
+      const dy = y - this.last.y;
+      this.last = { x, y };
 
       const r = this.rect;
 
-      if (this.isDragging) {
-        r.x += dx;
-        r.y += dy;
-      } else if (this.resizeHandle) {
-        if (this.resizeHandle.includes("n")) {
-          r.y += dy;
-          r.h -= dy;
-        }
-        if (this.resizeHandle.includes("s")) {
-          r.h += dy;
-        }
-        if (this.resizeHandle.includes("w")) {
-          r.x += dx;
-          r.w -= dx;
-        }
-        if (this.resizeHandle.includes("e")) {
-          r.w += dx;
-        }
+      if (this.dragging) {
+        r.x += dx; r.y += dy;
+      } else if (this.resizing) {
+        if (this.resizing.includes("n")) { r.y += dy; r.h -= dy; }
+        if (this.resizing.includes("w")) { r.x += dx; r.w -= dx; }
+        if (this.resizing.includes("s")) { r.h += dy; }
+        if (this.resizing.includes("e")) { r.w += dx; }
       }
 
-      const minSize = 30;
-
-      r.w = Math.max(minSize, r.w);
-      r.h = Math.max(minSize, r.h);
+      const min = 30;
+      r.w = Math.max(min, r.w);
+      r.h = Math.max(min, r.h);
       r.x = Math.max(0, Math.min(this.canvas.width - r.w, r.x));
       r.y = Math.max(0, Math.min(this.canvas.height - r.h, r.y));
 
       this.render();
     };
 
-    const onUp = (event) => {
-      event.preventDefault();
-      this.isDragging = false;
-      this.resizeHandle = null;
+    const up = (e) => {
+      if (!this.image) return;
+      e.preventDefault();
+      this.dragging = false;
+      this.resizing = null;
     };
 
-    this.canvas.addEventListener("mousedown", onDown);
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    c.addEventListener("mousedown", down);
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
 
-    this.canvas.addEventListener("touchstart", onDown, { passive: false });
-    window.addEventListener("touchmove", onMove, { passive: false });
-    window.addEventListener("touchend", onUp, { passive: false });
+    c.addEventListener("touchstart", down, { passive: false });
+    window.addEventListener("touchmove", move, { passive: false });
+    window.addEventListener("touchend", up, { passive: false });
   }
 }

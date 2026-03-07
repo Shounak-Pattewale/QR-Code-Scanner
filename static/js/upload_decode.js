@@ -9,104 +9,71 @@
 */
 
 import { CONFIG } from "./config.js";
-import { isNativeDetectorAvailable, createNativeDetector } from "./scanner_native.js";
-import { isZXingAvailable, decodeFromImageElement } from "./scanner_zxing.js";
-import { isHtml5QrcodeAvailable } from "./scanner_html5.js";
+import { hasNativeBarcodeDetector, buildNativeDetector } from "./scanner_native.js";
+import { hasZXing, decodeImageElementZXing } from "./scanner_zxing.js";
+import { hasHtml5Qrcode } from "./scanner_html5.js";
 
-function preprocessCanvas(sourceCanvas) {
-  const outputCanvas = document.createElement("canvas");
-  outputCanvas.width = Math.round(sourceCanvas.width * CONFIG.uploadScale);
-  outputCanvas.height = Math.round(sourceCanvas.height * CONFIG.uploadScale);
+function preprocessCanvas(srcCanvas) {
+  const scale = CONFIG.uploadScale;
 
-  const ctx = outputCanvas.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(sourceCanvas, 0, 0, outputCanvas.width, outputCanvas.height);
+  const out = document.createElement("canvas");
+  out.width = Math.max(1, Math.round(srcCanvas.width * scale));
+  out.height = Math.max(1, Math.round(srcCanvas.height * scale));
 
-  const imageData = ctx.getImageData(0, 0, outputCanvas.width, outputCanvas.height);
-  const pixels = imageData.data;
+  const ctx = out.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(srcCanvas, 0, 0, out.width, out.height);
 
-  for (let i = 0; i < pixels.length; i += 4) {
-    const r = pixels[i];
-    const g = pixels[i + 1];
-    const b = pixels[i + 2];
+  const img = ctx.getImageData(0, 0, out.width, out.height);
+  const d = img.data;
 
-    // Convert to grayscale
-    let gray = 0.299 * r + 0.587 * g + 0.114 * b;
-
-    // Boost contrast slightly
-    gray = (gray - 128) * 1.4 + 128;
-    gray = Math.max(0, Math.min(255, gray));
-
-    pixels[i] = gray;
-    pixels[i + 1] = gray;
-    pixels[i + 2] = gray;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    let y = (0.299*r + 0.587*g + 0.114*b);
+    y = (y - 128) * 1.4 + 128;
+    y = Math.max(0, Math.min(255, y));
+    d[i] = d[i+1] = d[i+2] = y;
   }
 
-  ctx.putImageData(imageData, 0, 0);
-  return outputCanvas;
+  ctx.putImageData(img, 0, 0);
+  return out;
 }
 
 async function canvasToImage(canvas) {
-  const image = new Image();
-  image.src = canvas.toDataURL("image/png");
-  await image.decode();
-  return image;
+  const img = new Image();
+  img.src = canvas.toDataURL("image/png");
+  await img.decode();
+  return img;
 }
 
-export async function decodeUploadedCanvas(croppedCanvas) {
-  const processedCanvas = preprocessCanvas(croppedCanvas);
+export async function decodeFromCroppedCanvas(cropCanvas) {
+  const processed = preprocessCanvas(cropCanvas);
 
-  // 1. Native BarcodeDetector
-  if (isNativeDetectorAvailable()) {
+  if (hasNativeBarcodeDetector()) {
     try {
-      const detector = await createNativeDetector();
-      const results = await detector.detect(processedCanvas);
-
-      if (results && results.length && results[0].rawValue) {
-        return results[0].rawValue;
-      }
-    } catch (error) {
-      // ignore and continue fallback chain
-    }
+      const det = await buildNativeDetector();
+      const res = await det.detect(processed);
+      if (res && res.length && res[0].rawValue) return res[0].rawValue;
+    } catch (_) {}
   }
 
-  // 2. ZXing
-  if (isZXingAvailable()) {
+  if (hasZXing()) {
     try {
-      const image = await canvasToImage(processedCanvas);
-      const decodedText = await decodeFromImageElement(image);
-
-      if (decodedText) {
-        return decodedText;
-      }
-    } catch (error) {
-      // ignore and continue fallback chain
-    }
+      const img = await canvasToImage(processed);
+      const text = await decodeImageElementZXing(img);
+      if (text) return text;
+    } catch (_) {}
   }
 
-  // 3. html5-qrcode
-  if (isHtml5QrcodeAvailable()) {
+  if (hasHtml5Qrcode()) {
     try {
-      const blob = await new Promise((resolve) => {
-        processedCanvas.toBlob(resolve, "image/png");
-      });
+      const blob = await new Promise((resolve) => processed.toBlob(resolve, "image/png"));
+      const file = new File([blob], "crop.png", { type: "image/png" });
 
-      const file = new File([blob], "cropped-code.png", { type: "image/png" });
-
-      const scanner = new Html5Qrcode("reader");
-      const decodedText = await scanner.scanFile(file, true);
-
-      try {
-        await scanner.clear();
-      } catch (error) {
-        // ignore
-      }
-
-      if (decodedText) {
-        return decodedText;
-      }
-    } catch (error) {
-      // ignore
-    }
+      const tmp = new Html5Qrcode("reader");
+      const decoded = await tmp.scanFile(file, true);
+      try { await tmp.clear(); } catch (_) {}
+      if (decoded) return decoded;
+    } catch (_) {}
   }
 
   return null;
