@@ -233,16 +233,71 @@ async function startHtml5() {
 }
 
 // ------- Crop flow -------
+// async function openCrop() {
+//   const file = fileInput.files && fileInput.files[0];
+//   if (!file) return alert("Choose an image first.");
+
+//   // Stop live scanning if running
+//   if (running) await stopLive();
+
+//   mode = "crop";
+//   setScanUiMode("crop");
+//   setStatus("Adjust crop rectangle, then Decode.");
+
+//   await cropper.loadFile(file);
+// }
+
+async function fileToCanvas(file) {
+  /*
+    Convert uploaded file into a canvas so we can try automatic decoding
+    before opening the crop tool.
+  */
+  const img = new Image();
+  img.src = URL.createObjectURL(file);
+  await img.decode();
+  URL.revokeObjectURL(img.src);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = img.width;
+  canvas.height = img.height;
+
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+
+  return canvas;
+}
+
 async function openCrop() {
   const file = fileInput.files && fileInput.files[0];
-  if (!file) return alert("Choose an image first.");
+  if (!file) {
+    alert("Choose an image first.");
+    return;
+  }
 
-  // Stop live scanning if running
-  if (running) await stopLive();
+  if (running) {
+    await stopLive();
+  }
 
+  setStatus("Trying to decode uploaded image automatically...");
+
+  try {
+    // Step 1: try decoding the full image first
+    const fullImageCanvas = await fileToCanvas(file);
+    const autoDecoded = await decodeFromCroppedCanvas(fullImageCanvas);
+
+    if (autoDecoded) {
+      setCode(autoDecoded);
+      setStatus("Code detected automatically from uploaded image.");
+      return;
+    }
+  } catch (error) {
+    console.log("Automatic full-image decode failed:", error);
+  }
+
+  // Step 2: if auto-decode fails, fall back to manual crop UI
   mode = "crop";
   setScanUiMode("crop");
-  setStatus("Adjust crop rectangle, then Decode.");
+  setStatus("Automatic decode failed. Adjust crop rectangle, then Decode.");
 
   await cropper.loadFile(file);
 }
