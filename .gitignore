@@ -5,3 +5,4 @@ log-archive
 venv
 .vscode
 .env
+test_qr_codes

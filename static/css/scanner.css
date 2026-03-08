@@ -1,0 +1,202 @@
+/*
+ * scanner.css
+ * -----------
+ * Styles for the mobile barcode scanner page.
+ *
+ * Sections:
+ *   1. Base / typography
+ *   2. Image preview
+ *   3. Camera wrapper and video
+ *   4. Viewfinder overlay — corner marks
+ *   5. Viewfinder overlay — scan line animation
+ *   6. Viewfinder overlay — success flash
+ */
+
+
+/* ── 1. Base / typography ─────────────────────────────────────────────────── */
+
+body {
+  background: #f8f9fa;
+}
+
+/* Monospace font for code display and manual input */
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+/* Muted helper text used throughout the page */
+.small-note {
+  font-size: 0.9rem;
+  color: #6c757d;
+}
+
+/* Hidden file inputs — triggered programmatically by buttons */
+.hidden-input {
+  display: none;
+}
+
+
+/* ── 2. Image preview ─────────────────────────────────────────────────────── */
+
+.preview-img {
+  width: 100%;
+  max-width: 640px;
+  border-radius: 12px;
+  display: none;           /* shown by JS after a file is selected */
+  background: #111;        /* dark placeholder while image loads   */
+}
+
+
+/* ── 3. Camera wrapper and video ──────────────────────────────────────────── */
+
+/* Camera section is hidden until the user presses "Scan Code" */
+#cameraSection {
+  display: none;
+}
+
+/*
+ * #cameraWrapper is the positioning context for the viewfinder overlay.
+ *
+ * display: inline-block  — shrink-wraps to the video's rendered width
+ * line-height: 0         — removes the phantom baseline gap below <video>
+ * overflow: hidden       — clips overlay corners to the rounded border
+ *
+ * This ensures the overlay can never overflow the video bounds,
+ * regardless of screen size or aspect ratio.
+ */
+#cameraWrapper {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  max-width: 640px;
+  line-height: 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+#cameraVideo {
+  width: 100%;
+  display: block;    /* removes inline baseline gap */
+  background: #000;
+}
+
+
+/* ── 4. Viewfinder overlay — corner marks ─────────────────────────────────── */
+
+/*
+ * #viewfinderOverlay stretches to exactly cover #cameraWrapper via inset: 0.
+ * pointer-events: none ensures touch events pass through to the video.
+ */
+#viewfinderOverlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: box-shadow 0.15s ease;
+}
+
+/* Top-left and bottom-right corner marks via ::before / ::after */
+#viewfinderOverlay::before,
+#viewfinderOverlay::after {
+  content: "";
+  position: absolute;
+  width: 36px;
+  height: 36px;
+  border-color: rgba(255, 255, 255, 0.85);
+  border-style: solid;
+}
+
+#viewfinderOverlay::before {
+  top: 16px;
+  left: 16px;
+  border-width: 3px 0 0 3px;
+  border-radius: 4px 0 0 0;
+}
+
+#viewfinderOverlay::after {
+  bottom: 16px;
+  right: 16px;
+  border-width: 0 3px 3px 0;
+  border-radius: 0 0 4px 0;
+}
+
+/* Top-right and bottom-left corners use child <span> elements
+   because ::before and ::after are already used above */
+#viewfinderCornerTR,
+#viewfinderCornerBL {
+  position: absolute;
+  width: 36px;
+  height: 36px;
+  border-color: rgba(255, 255, 255, 0.85);
+  border-style: solid;
+}
+
+#viewfinderCornerTR {
+  top: 16px;
+  right: 16px;
+  border-width: 3px 3px 0 0;
+  border-radius: 0 4px 0 0;
+}
+
+#viewfinderCornerBL {
+  bottom: 16px;
+  left: 16px;
+  border-width: 0 0 3px 3px;
+  border-radius: 0 0 0 4px;
+}
+
+
+/* ── 5. Viewfinder overlay — scan line animation ──────────────────────────── */
+
+/*
+ * The scan line is a 2px horizontal bar that sweeps top-to-bottom.
+ *
+ * Animation technique:
+ *   #scanLineWrapper spans the full height of the overlay (height: 100%).
+ *   Animating translateY% on a full-height wrapper resolves percentages
+ *   against the overlay height — NOT the element's own height (which
+ *   would be only 2px). This gives correct travel distance.
+ *
+ *   Pure transform animation runs entirely on the GPU compositor thread —
+ *   zero layout recalculation, zero paint — which is why it is smooth
+ *   on low-end mobile devices.
+ */
+#scanLineWrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  will-change: transform;
+  animation: scanMove 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+#scanLine {
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 16px;
+  height: 2px;
+  background: rgba(13, 202, 240, 0.85);
+  box-shadow: 0 0 8px rgba(13, 202, 240, 0.7);
+}
+
+@keyframes scanMove {
+  0%   { transform: translateY(8%);  }
+  50%  { transform: translateY(90%); }
+  100% { transform: translateY(8%);  }
+}
+
+
+/* ── 6. Viewfinder overlay — success flash ────────────────────────────────── */
+
+/* Green border flash on the overlay when a code is detected */
+#viewfinderOverlay.detected {
+  box-shadow: inset 0 0 0 3px #198754;
+}
+
+/* Scan line turns green to match */
+#viewfinderOverlay.detected #scanLineWrapper #scanLine {
+  background: #198754;
+  box-shadow: 0 0 12px #198754;
+}

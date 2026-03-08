@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verification by Marking Code</title>
+
+  <!-- Bootstrap CSS (local) -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap/css/bootstrap.min.css') }}">
+
+  <!-- Scanner app styles -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/scanner.css') }}">
+</head>
+<body>
+  <div class="container py-3">
+
+    <h3 class="mb-3">Verification by Marking Code</h3>
+
+    <!-- ── Scan controls card ──────────────────────────────────────────── -->
+    <div class="card mb-3">
+      <div class="card-body">
+
+        <!-- Action buttons -->
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          <button id="btnChooseImage" type="button" class="btn btn-primary">
+            Choose Image
+          </button>
+          <button id="btnStartCamera" type="button" class="btn btn-outline-secondary">
+            Scan Code
+          </button>
+          <button id="btnStopCamera" type="button" class="btn btn-outline-danger" style="display:none;">
+            Stop Camera
+          </button>
+        </div>
+
+        <!--
+          Hidden file inputs — triggered by buttons above.
+          galleryInput: opens the OS photo picker (includes camera option on mobile).
+          cameraInput:  opens the camera directly (capture="environment").
+        -->
+        <input id="galleryInput" class="hidden-input" type="file" accept="image/*">
+        <input id="cameraInput"  class="hidden-input" type="file" accept="image/*" capture="environment">
+
+        <!-- Manual code entry (fallback when scanning fails) -->
+        <div class="mb-3">
+          <label for="manualInput" class="form-label">Manual input</label>
+          <div class="input-group">
+            <input
+              id="manualInput"
+              type="text"
+              class="form-control mono"
+              placeholder="Enter or paste package code"
+            >
+            <button id="btnUseManual" type="button" class="btn btn-outline-primary">Use</button>
+          </div>
+          <div class="small-note mt-1">Use this if scanning cannot read the label.</div>
+        </div>
+
+        <!-- Detected code output -->
+        <div class="mb-3">
+          <label for="codeDisplay" class="form-label">Detected code</label>
+          <div class="input-group">
+            <input id="codeDisplay" type="text" class="form-control mono" readonly>
+            <button id="btnCopy" type="button" class="btn btn-outline-success" disabled>Copy</button>
+          </div>
+        </div>
+
+        <!-- Status message -->
+        <div id="statusMessage" class="small-note"></div>
+
+        <!-- Copy confirmation toast -->
+        <div id="copyToast" class="alert alert-success py-2 mt-2 d-none">Copied</div>
+
+      </div>
+    </div>
+
+    <!-- ── Live camera card ────────────────────────────────────────────── -->
+    <div class="card mb-3">
+      <div class="card-body">
+
+        <div id="cameraSection">
+          <!--
+            #cameraWrapper is the positioning context for the viewfinder overlay.
+            It shrink-wraps to the video's rendered size so the overlay
+            can never overflow the video bounds.
+          -->
+          <div id="cameraWrapper">
+            <video id="cameraVideo" autoplay playsinline muted></video>
+
+            <!-- Viewfinder overlay: corner marks + animated scan line -->
+            <div id="viewfinderOverlay">
+              <span id="viewfinderCornerTR"></span>
+              <span id="viewfinderCornerBL"></span>
+              <div id="scanLineWrapper">
+                <div id="scanLine"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="small-note mt-2">
+          Press <strong>Scan Code</strong> to scan.
+          Camera closes automatically when a code is detected.
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Image preview card ──────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-body">
+
+        <img id="previewImage" class="preview-img" alt="Selected image preview">
+
+        <!--
+          Hidden mount point required by html5-qrcode.
+          It creates internal DOM nodes here during decoding
+          and is cleaned up after each use.
+        -->
+        <div id="reader" style="display:none;"></div>
+
+        <div class="small-note mt-3">
+          Upload or take a photo to decode from an image.
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- /container -->
+
+
+  <!--
+    ═══════════════════════════════════════════════════════
+    Vendor libraries (loaded before app modules)
+    ═══════════════════════════════════════════════════════
+  -->
+  <script src="{{ url_for('static', filename='vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='vendor/zxing/zxing.min.js') }}"></script>
+
+  <!--
+    ═══════════════════════════════════════════════════════
+    App modules — load order matters (dependencies first)
+    ═══════════════════════════════════════════════════════
+
+    config.js       constants
+         ↓
+    canvas.js       image utilities         (needs: nothing)
+         ↓
+    preprocessor.js image variants          (needs: canvas.js)
+         ↓
+    decoders.js     decoder wrappers        (needs: canvas.js, config.js)
+         ↓
+    pipeline.js     variant pipeline runner (needs: decoders.js)
+         ↓
+    ui.js           DOM reads/writes        (needs: nothing)
+         ↓
+    camera.js       live camera + scan loop (needs: all above)
+         ↓
+    upload.js       file upload handler     (needs: all above)
+         ↓
+    scanner.js      entry point / wiring    (needs: all above)
+  -->
+  <script src="{{ url_for('static', filename='js/scanner/config.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/scanner/canvas.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/scanner/preprocessor.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/scanner/decoders.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/scanner/pipeline.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/scanner/ui.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/scanner/camera.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/scanner/upload.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/scanner/scanner.js') }}"></script>
+
+</body>
+</html>
