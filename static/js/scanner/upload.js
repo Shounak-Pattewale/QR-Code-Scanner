@@ -15,8 +15,9 @@
  *   ScannerConfig (config.js)
  *   CanvasUtils   (canvas.js)
  *   Preprocessor  (preprocessor.js)
- *   Pipeline      (pipeline.js)
- *   UI            (ui.js)
+ *   Pipeline        (pipeline.js)
+ *   BackendDecoder  (backend.js)
+ *   UI              (ui.js)
  */
 
 const Upload = (() => {
@@ -66,9 +67,11 @@ const Upload = (() => {
 
       UI.setStatus("Decoding image...");
 
-      // Build full 10-variant pipeline and run all decoders
+      // Build full 10-variant pipeline.
+      // runWithFallback tries all browser decoders first, then
+      // automatically calls the backend if all browser passes fail.
       const variants = Preprocessor.buildUploadVariants(baseCanvas);
-      const result   = await Pipeline.run(variants, _readerDiv);
+      const result   = await Pipeline.runWithFallback(variants, _readerDiv, file);
 
       if (_onResult) _onResult(result);
     } catch (err) {
@@ -79,10 +82,55 @@ const Upload = (() => {
     }
   }
 
+  /**
+   * Advanced decode — skip browser decoders entirely and send the
+   * file directly to the backend Python decoder.
+   *
+   * Used when the operator presses "Advanced Scan" on a label that
+   * they know the browser won't be able to read (e.g. GS1 DataMatrix).
+   *
+   * @param {File} file
+   * @returns {Promise<void>}
+   */
+  async function handleFileAdvanced(file) {
+    if (!file) return;
+
+    try {
+      UI.setStatus("Sending to backend decoder...");
+      UI.setCode("");
+
+      const img = await CanvasUtils.fileToImage(file);
+      UI.showPreview(img.src);
+
+      if (!ScannerConfig.DECODER_API_URL) {
+        UI.setStatus("Backend decoder is not configured.");
+        return;
+      }
+
+      const backendResult = await BackendDecoder.decode(file);
+
+      if (backendResult && backendResult.found) {
+        if (_onResult) _onResult({
+          code:    backendResult.code,
+          variant: backendResult.variant,
+          source:  "backend",
+        });
+      } else {
+        if (_onResult) _onResult(null);
+      }
+    } catch (err) {
+      console.error("[Upload] handleFileAdvanced failed:", err);
+      UI.setStatus("Advanced decode failed. Please try again.");
+    } finally {
+      UI.resetFileInputs();
+    }
+  }
+
   // Public API
   return {
     onResult,
     handleFile,
+    handleFileAdvanced,
   };
 
 })();

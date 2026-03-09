@@ -69,7 +69,44 @@ const Pipeline = (() => {
     return null;
   }
 
+  /**
+   * Run the browser pipeline first. If all variants fail, automatically
+   * send the original file to the backend Python decoder as a fallback.
+   *
+   * This is the standard path for upload decoding — browser is fast and
+   * private, backend is powerful and handles damaged labels better.
+   *
+   * @param {Array<{name: string, canvas: HTMLCanvasElement, useHtml5: boolean}>} variants
+   * @param {HTMLElement} readerDiv   - #reader container for html5-qrcode
+   * @param {File}        file        - original file, sent to backend if needed
+   * @returns {Promise<{code: string, variant: string, source: string}|null>}
+   *   source is "browser" or "backend"
+   */
+  async function runWithFallback(variants, readerDiv, file) {
+    // 1. Try browser pipeline first
+    const browserResult = await run(variants, readerDiv);
+    if (browserResult) {
+      return { ...browserResult, source: "browser" };
+    }
+
+    // 2. Browser failed — try backend fallback if configured
+    if (!ScannerConfig.DECODER_API_URL || !file) return null;
+
+    console.debug("[Pipeline] Browser decoders failed — trying backend fallback.");
+
+    const backendResult = await BackendDecoder.decode(file);
+    if (backendResult && backendResult.found) {
+      return {
+        code:    backendResult.code,
+        variant: backendResult.variant,
+        source:  "backend",
+      };
+    }
+
+    return null;
+  }
+
   // Public API
-  return { run };
+  return { run, runWithFallback };
 
 })();

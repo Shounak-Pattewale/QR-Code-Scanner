@@ -31,6 +31,9 @@
           <button id="btnStopCamera" type="button" class="btn btn-outline-danger" style="display:none;">
             Stop Camera
           </button>
+          <button id="btnAdvancedScan" type="button" class="btn btn-outline-warning">
+            Advanced Scan
+          </button>
         </div>
 
         <!--
@@ -39,7 +42,8 @@
           cameraInput:  opens the camera directly (capture="environment").
         -->
         <input id="galleryInput" class="hidden-input" type="file" accept="image/*">
-        <input id="cameraInput"  class="hidden-input" type="file" accept="image/*" capture="environment">
+        <input id="cameraInput"    class="hidden-input" type="file" accept="image/*" capture="environment">
+        <input id="advancedInput"  class="hidden-input" type="file" accept="image/*">
 
         <!-- Manual code entry (fallback when scanning fails) -->
         <div class="mb-3">
@@ -54,6 +58,7 @@
             <button id="btnUseManual" type="button" class="btn btn-outline-primary">Use</button>
           </div>
           <div class="small-note mt-1">Use this if scanning cannot read the label.</div>
+          <div class="small-note mt-1">Use <strong>Advanced Scan</strong> to send the image directly to the backend decoder for difficult labels.</div>
         </div>
 
         <!-- Detected code output -->
@@ -165,6 +170,7 @@
   <script src="{{ url_for('static', filename='js/scanner/preprocessor.js') }}"></script>
   <script src="{{ url_for('static', filename='js/scanner/decoders.js') }}"></script>
   <script src="{{ url_for('static', filename='js/scanner/pipeline.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/scanner/backend.js') }}"></script>
   <script src="{{ url_for('static', filename='js/scanner/ui.js') }}"></script>
   <script src="{{ url_for('static', filename='js/scanner/camera.js') }}"></script>
   <script src="{{ url_for('static', filename='js/scanner/upload.js') }}"></script>

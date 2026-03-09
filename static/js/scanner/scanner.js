@@ -19,11 +19,12 @@
  *   pipeline.js     — runs decoders across variants
  *   camera.js       — live camera stream and scan loop
  *   upload.js       — file selection and decode
+ *   backend.js      — backend API communication
  *   ui.js           — all DOM reads and writes
  *
  * Load order in HTML (each module depends on the ones above it):
  *   config.js → canvas.js → preprocessor.js → decoders.js →
- *   pipeline.js → ui.js → camera.js → upload.js → scanner.js
+ *   pipeline.js → backend.js → ui.js → camera.js → upload.js → scanner.js
  */
 
 (function () {
@@ -47,11 +48,12 @@
   // Called by Upload when file decoding completes (success or failure)
   Upload.onResult(function (result) {
     if (result) {
-      console.info(`[Scanner] Upload scan success — variant: ${result.variant}`);
+      const source = result.source === "backend" ? "backend decoder" : "browser";
+      console.info(`[Scanner] Scan success — source: ${source}, variant: ${result.variant}`);
       UI.setCode(result.code);
-      UI.setStatus(`Code detected from image (${result.variant}).`);
+      UI.setStatus(`Code detected via ${source} (${result.variant}).`);
     } else {
-      UI.setStatus("Could not detect a code. Try a clearer photo or enter the code manually.");
+      UI.setStatus("Could not detect a code. Try Advanced Scan or enter the code manually.");
     }
   });
 
@@ -73,6 +75,15 @@
 
   UI.getElement("cameraInput").addEventListener("change", function () {
     Upload.handleFile(this.files?.[0]);
+  });
+
+  // Advanced Scan — hidden file input that sends directly to backend
+  UI.getElement("advancedInput").addEventListener("change", function () {
+    Upload.handleFileAdvanced(this.files?.[0]);
+  });
+
+  UI.getElement("btnAdvancedScan").addEventListener("click", () => {
+    UI.getElement("advancedInput").click();
   });
 
   // Manual code entry

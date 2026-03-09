@@ -39,8 +39,9 @@ const UI = (() => {
     btnChooseImage: el("btnChooseImage"),
     btnUseManual:   el("btnUseManual"),
     btnCopy:        el("btnCopy"),
-    btnStartCamera: el("btnStartCamera"),
-    btnStopCamera:  el("btnStopCamera"),
+    btnStartCamera:  el("btnStartCamera"),
+    btnStopCamera:   el("btnStopCamera"),
+    btnAdvancedScan: el("btnAdvancedScan"),
 
     // Output
     codeDisplay:    el("codeDisplay"),

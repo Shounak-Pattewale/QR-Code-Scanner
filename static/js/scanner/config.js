@@ -54,6 +54,20 @@ const ScannerConfig = {
    */
   UPLOAD_MAX_DIM: 1600,
 
+  // ── Backend fallback decoder ─────────────────────────────────────────────
+
+  /**
+   * URL of the backend Python decoder API.
+   * Called automatically when all browser decoders fail (auto-fallback),
+   * or directly when the user presses "Advanced Scan".
+   *
+   * Change this to match the port your decoder_app is running on.
+   * Example: "http://localhost:5001" or an ngrok URL for mobile testing.
+   *
+   * Set to null to disable the backend fallback entirely.
+   */
+  DECODER_API_URL: "http://localhost:5001",
+
   // ── Barcode formats ───────────────────────────────────────────────────────
 
   /**
